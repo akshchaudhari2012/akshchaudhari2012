@@ -1,0 +1,45 @@
+name: Build and Deploy to ECS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE_NAME=<your-ecr-repo-url> # e.g., 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-app
+          TAG=${{ github.sha }}
+          docker build -t $IMAGE_NAME:$TAG .
+          docker push $IMAGE_NAME:$TAG
+
+      - name: Update ECS Task Definition
+        run: |
+          IMAGE_NAME=<your-ecr-repo-url> # e.g., 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-app
+          TAG=${{ github.sha }}
+
+          # Get the current task definition
+          TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition <your-task-definition-name> --query 'taskDefinition' --output json)
+
+          # Modify the container image
+          NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$IMAGE_NAME:$TAG" '.containerDefinitions[0].image = $IMAGE')
+
+          # Register a new task definition revision
+          echo $NEW_TASK_DEFINITION | aws ecs register-task-definition --cli-input-json file:///dev/stdin
+
+      - name: Update ECS Service
+        run: |
+          aws ecs update-service --cluster <your-cluster-name> --service <your-service-name> --force-new-deployment
